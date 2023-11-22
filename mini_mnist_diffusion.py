@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import data
 from tqdm import tqdm
 import os
+import argparse
 
 
 # Define a PyTorch Dataset
@@ -31,8 +32,27 @@ def apply_markov_noise(data, step_size=0.1, steps=10, noise_type="normal"):
         if noise_type == "normal":
             noisy_data += np.random.normal(scale=step_size, size=noisy_data.shape)
         elif noise_type == "laplace":
-            # loc makes mean of laplace distribution 0
             noisy_data += np.random.laplace(loc=0, scale=step_size, size=noisy_data.shape)
+        elif noise_type == "uniform":
+            noisy_data += np.random.uniform(low=-step_size, high=step_size, size=noisy_data.shape)
+        elif noise_type == "poisson":
+            noisy_data += np.random.poisson(lam=step_size, size=noisy_data.shape)
+        elif noise_type == "binomial":
+            noisy_data += np.random.binomial(n=1, p=0.5, size=noisy_data.shape) * step_size
+        elif noise_type == "exponential":
+            noisy_data += np.random.exponential(scale=step_size, size=noisy_data.shape)
+        elif noise_type == "gamma":
+            noisy_data += np.random.gamma(shape=2.0, scale=step_size, size=noisy_data.shape)
+        elif noise_type == "beta":
+            noisy_data += np.random.beta(a=0.5, b=0.5, size=noisy_data.shape) * step_size
+        elif noise_type == "chisquare":
+            noisy_data += np.random.chisquare(df=2, size=noisy_data.shape)
+        elif noise_type == "rayleigh":
+            noisy_data += np.random.rayleigh(scale=step_size, size=noisy_data.shape)
+        elif noise_type == "logistic":
+            noisy_data += np.random.logistic(loc=0, scale=step_size, size=noisy_data.shape)
+        elif noise_type == "gumbel":
+            noisy_data += np.random.gumbel(loc=0, scale=step_size, size=noisy_data.shape)
         else:
             raise ValueError("Invalid noise argument; unsupported noise type.")
     return noisy_data
@@ -64,8 +84,19 @@ def denoise_data(loader):
     return np.concatenate(denoised_data, axis=0)
 
 
-def plot_images(images, labels, num_images=10, title="", save_directory="results/mini_mnist/"):
+def select_one_image_per_label(data, labels):
+    unique_images = []
+    unique_labels = []
+    for label in range(10):  # Loop through labels 0 to 9
+        index = np.where(labels == label)[0][0]  # Find the first occurrence of each label
+        unique_images.append(data[index])
+        unique_labels.append(labels[index])
+    return np.array(unique_images), np.array(unique_labels)
+
+
+def plot_images(images, labels, noise_type, num_images=10, title="", save_directory="results/mini_mnist/"):
     # Create the directory if it does not exist
+    save_directory += noise_type
     if not os.path.exists(save_directory):
         os.makedirs(save_directory)
 
@@ -78,22 +109,19 @@ def plot_images(images, labels, num_images=10, title="", save_directory="results
 
     # Save the figure
     plt.savefig(os.path.join(save_directory, title + ".png"), dpi=300, format='png')
-    plt.close(fig)  # Close the figure to free memory
-
-
-def select_one_image_per_label(data, labels):
-    unique_images = []
-    unique_labels = []
-    for label in range(10):  # Loop through labels 0 to 9
-        index = np.where(labels == label)[0][0]  # Find the first occurrence of each label
-        unique_images.append(data[index])
-        unique_labels.append(labels[index])
-    return np.array(unique_images), np.array(unique_labels)
+    plt.close(fig)
 
 
 if __name__ == '__main__':
-    # Select type of noise
-    noise_type = "laplace"
+    # Select type of noise and number of epochs
+    parser = argparse.ArgumentParser(description="Denoising with PyTorch")
+    parser.add_argument("--noise_type", type=str, default="normal", help="Type of noise to apply (default: normal)")
+    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs (default: 100)")
+
+    # Parse arguments and use them
+    args = parser.parse_args()
+    noise_type = args.noise_type
+    epochs = args.epochs
 
     # Load the dataset
     train_data, train_labels, test_data, test_labels = data.load_all_data('data')
@@ -107,11 +135,10 @@ if __name__ == '__main__':
 
     # Instantiate model, optimizer, and loss function
     model = DenoisingNet()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
 
     # Train model
-    epochs = 100
     for epoch in range(epochs):
         # Wrap train_loader with tqdm for a progress bar
         for noisy_data, clean_data in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
@@ -136,6 +163,6 @@ if __name__ == '__main__':
     unique_denoised_images = unique_denoised_images_tensor.numpy()
 
     # Visualize original, noisy, and denoised images
-    plot_images(unique_test_images, unique_test_labels, num_images=10, title="Original Images")
-    plot_images(unique_noisy_images, unique_test_labels, num_images=10, title="Noisy Images")
-    plot_images(unique_denoised_images, unique_test_labels, num_images=10, title="Denoised Images")
+    plot_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
+    plot_images(unique_noisy_images, unique_test_labels, noise_type, num_images=10, title="Noisy Images")
+    plot_images(unique_denoised_images, unique_test_labels, noise_type, num_images=10, title="Denoised Images")
