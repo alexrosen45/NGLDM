@@ -28,7 +28,9 @@ class NoisyDataset(Dataset):
 def apply_markov_noise(data, step_size=0.1, steps=10):
     noisy_data = data.copy()
     for _ in range(steps):
-        noisy_data += np.random.normal(scale=step_size, size=noisy_data.shape)
+        # loc makes mean of laplace distribution 0
+        noisy_data += np.random.laplace(loc=0, scale=step_size, size=noisy_data.shape)
+        # noisy_data += np.random.normal(scale=step_size, size=noisy_data.shape)
     return noisy_data
 
 # Create datasets and dataloaders
@@ -57,9 +59,10 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 criterion = nn.MSELoss()
 
 # Train model
-for epoch in range(100):
+epochs = 10
+for epoch in range(epochs):
     # Wrap train_loader with tqdm for a progress bar
-    for noisy_data, clean_data in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{100}"):
+    for noisy_data, clean_data in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
         optimizer.zero_grad()
         outputs = model(noisy_data.float())
         loss = criterion(outputs, clean_data.float())
