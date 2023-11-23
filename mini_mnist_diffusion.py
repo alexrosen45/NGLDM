@@ -73,12 +73,12 @@ class DenoisingNet(nn.Module):
 
 
 # Denoise the test data
-def denoise_data(loader):
+def denoise_data(loader, model, device):
     model.eval()
     denoised_data = []
     with torch.no_grad():
-        # Wrap test_loader with tqdm for a progress bar
         for noisy_data, _ in tqdm(loader, desc="Denoising Test Data"):
+            noisy_data = noisy_data.to(device)
             outputs = model(noisy_data.float())
             denoised_data.append(outputs.cpu().numpy())
     return np.concatenate(denoised_data, axis=0)
@@ -134,14 +134,15 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # Instantiate model, optimizer, and loss function
-    model = DenoisingNet()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = DenoisingNet().to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
 
     # Train model
     for epoch in range(epochs):
-        # Wrap train_loader with tqdm for a progress bar
         for noisy_data, clean_data in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
+            noisy_data, clean_data = noisy_data.to(device), clean_data.to(device)
             optimizer.zero_grad()
             outputs = model(noisy_data.float())
             loss = criterion(outputs, clean_data.float())
