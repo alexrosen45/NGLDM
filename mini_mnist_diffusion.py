@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,25 +11,77 @@ import os
 import argparse
 
 
+# Variance scheduling
+class Schedule:
+    def __init__(self, timesteps, type, start, increment):
+        self.timesteps = timesteps
+        # linear or quadratic schedule
+        self.type = type
+        self.start = start
+        self.increment = increment
+
+    def sample_variances(self):
+        t = np.random.randint(1, self.timesteps)
+        # list of variances by t=index
+        variance = []
+        for i in range(t):
+            i_v = i if self.type == "linear" else i ** 2
+            variance.append(self.start + self.increment * i_v)
+        return t, variance
+
+
 # Define a PyTorch Dataset
 class NoisyDataset(Dataset):
-    def __init__(self, data, labels, noise_fn):
+    def __init__(self, data, labels, noise_fn, schedule):
         self.data = data
         self.labels = labels
         self.noise_fn = noise_fn
+        self.schedule = schedule
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
-        noisy_data = self.noise_fn(self.data[idx])
-        return noisy_data, self.data[idx]
+    def __getitem__(self, idx, ):
+        t, variance = self.schedule.sample_variances()
+        noisy_data = apply_noise(self.noise_fn, self.data[idx], variance)
+        return noisy_data, self.data[idx], t
 
 
-# Apply Markov chain noise to the data
-def apply_markov_noise(data, step_size=0.1, steps=10, noise_type="normal"):
+def apply_noise(noise_fn, data, schedule):
     noisy_data = data.copy()
-    for _ in range(steps):
+    # loop over variance steps
+    for i in range(len(schedule)):
+        variance = schedule[i]
+        # add noise to data
+        noisy_data += noise_fn(noisy_data.shape, variance)
+    return noisy_data
+
+
+def normal(shape, var):
+    return np.random.normal(scale=math.sqrt(var), size=shape)
+
+
+def logistic(shape, var):
+    s = math.sqrt((3 * var) / (math.pi ** 2))
+    return np.random.logistic(loc=0, scale=s, size=shape)
+
+
+def gumbel(shape, var):
+    s = math.sqrt((6 * var) / (math.pi ** 2))
+    return np.random.gumbel(loc=0, scale=s, size=shape) - s * 0.57721
+
+
+def exponential(shape, var):
+    s = math.sqrt(var)
+    return np.random.exponential(scale=s, size=shape) - s
+
+
+ALL_NOISE = {"normal": normal, "gumbel": gumbel, "logistic": logistic, "exponential": exponential}
+# Deprecated
+# Apply Markov chain noise to the data
+def apply_markov_noise(data, steps, step_size, noise_type):
+    noisy_data = data.copy()
+    for i in range(steps):
         if noise_type == "normal":
             noisy_data += np.random.normal(scale=step_size, size=noisy_data.shape)
         elif noise_type == "laplace":
@@ -112,11 +165,34 @@ def plot_images(images, labels, noise_type, num_images=10, title="", save_direct
     plt.close(fig)
 
 
+def train_model(train_dataset):
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    # Instantiate model, optimizer, and loss function
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = DenoisingNet().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    criterion = nn.MSELoss()
+
+    # Train model
+    for epoch in range(epochs):
+        #TODO: Add timesteps to model inputs
+        for noisy_data, clean_data, timesteps in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
+            noisy_data, clean_data = noisy_data.to(device), clean_data.to(device)
+            optimizer.zero_grad()
+            outputs = model(noisy_data.float())
+            loss = criterion(outputs, clean_data.float())
+            loss.backward()
+            optimizer.step()
+
+    return model
+
+
 if __name__ == '__main__':
     # Select type of noise and number of epochs
     parser = argparse.ArgumentParser(description="Denoising with PyTorch")
     parser.add_argument("--noise_type", type=str, default="normal", help="Type of noise to apply (default: normal)")
     parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs (default: 100)")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Parse arguments and use them
     args = parser.parse_args()
@@ -126,44 +202,39 @@ if __name__ == '__main__':
     # Load the dataset
     train_data, train_labels, test_data, test_labels = data.load_all_data('data')
 
-    # Create datasets and dataloaders
-    train_dataset = NoisyDataset(train_data, train_labels, lambda x: apply_markov_noise(x, 0.1, 10, noise_type))
-    test_dataset = NoisyDataset(test_data, test_labels, lambda x: apply_markov_noise(x, 0.1, 10, noise_type))
+    if noise_type != "all" and noise_type not in ALL_NOISE.keys():
+        raise ValueError("Invalid noise type.")
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    noise_types = ALL_NOISE if args.noise_type == "all" else {args.noise_type: ALL_NOISE[args.noise_type]}
+    for noise_type in noise_types.keys():
+        # Create datasets and dataloaders
+        schedule = Schedule(timesteps=25, type="linear", start=0.1, increment=0.01)
+        train_dataset = NoisyDataset(train_data, train_labels, ALL_NOISE[noise_type], schedule)
+        test_dataset = NoisyDataset(test_data, test_labels, ALL_NOISE[noise_type], schedule)
+        model = train_model(train_dataset)
 
-    # Instantiate model, optimizer, and loss function
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = DenoisingNet().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.MSELoss()
+        # save generated images to npz file
+        denoised_test = denoise_data(DataLoader(test_dataset, batch_size=32, shuffle=True), model, device)
+        out_dir = f"results/mini_mnist/{noise_type}"
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        np.savez(out_dir + "/test.npz", denoised_test)
 
-    # Train model
-    for epoch in range(epochs):
-        for noisy_data, clean_data in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
-            noisy_data, clean_data = noisy_data.to(device), clean_data.to(device)
-            optimizer.zero_grad()
-            outputs = model(noisy_data.float())
-            loss = criterion(outputs, clean_data.float())
-            loss.backward()
-            optimizer.step()
+        # Select one image per label from test data
+        unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
 
-    denoised_test_data = denoise_data(test_loader, model, device)
+        # Generate noisy versions
+        test_schedule = schedule.sample_variances()
+        unique_noisy_images = apply_noise(ALL_NOISE[noise_type], unique_test_images, test_schedule)
 
-    # Select one image per label from test data
-    unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
+        # Generate denoised versions
+        unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32).to(device)
+        with torch.no_grad():
+            unique_denoised_images_tensor = model(unique_noisy_images_tensor)
+        # Move tensor back to CPU if needed for further processing
+        unique_denoised_images = unique_denoised_images_tensor.cpu().numpy()
 
-    # Generate noisy versions
-    unique_noisy_images = apply_markov_noise(unique_test_images, 0.1, 10, noise_type)
-
-    # Generate denoised versions
-    unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32).to(device)  # Move tensor to the same device as the model
-    with torch.no_grad():
-        unique_denoised_images_tensor = model(unique_noisy_images_tensor)
-    unique_denoised_images = unique_denoised_images_tensor.cpu().numpy()  # Move tensor back to CPU if needed for further processing
-
-    # Visualize original, noisy, and denoised images
-    plot_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
-    plot_images(unique_noisy_images, unique_test_labels, noise_type, num_images=10, title="Noisy Images")
-    plot_images(unique_denoised_images, unique_test_labels, noise_type, num_images=10, title="Denoised Images")
+        # Visualize original, noisy, and denoised images
+        plot_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
+        plot_images(unique_noisy_images, unique_test_labels, noise_type, num_images=10, title="Noisy Images")
+        plot_images(unique_denoised_images, unique_test_labels, noise_type, num_images=10, title="Denoised Images")
