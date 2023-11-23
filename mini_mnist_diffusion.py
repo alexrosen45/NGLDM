@@ -149,7 +149,7 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
 
-    denoised_test_data = denoise_data(test_loader)
+    denoised_test_data = denoise_data(test_loader, model, device)
 
     # Select one image per label from test data
     unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
@@ -158,10 +158,10 @@ if __name__ == '__main__':
     unique_noisy_images = apply_markov_noise(unique_test_images, 0.1, 10, noise_type)
 
     # Generate denoised versions
-    unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32)
+    unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32).to(device)  # Move tensor to the same device as the model
     with torch.no_grad():
         unique_denoised_images_tensor = model(unique_noisy_images_tensor)
-    unique_denoised_images = unique_denoised_images_tensor.numpy()
+    unique_denoised_images = unique_denoised_images_tensor.cpu().numpy()  # Move tensor back to CPU if needed for further processing
 
     # Visualize original, noisy, and denoised images
     plot_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
