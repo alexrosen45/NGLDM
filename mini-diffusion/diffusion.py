@@ -22,7 +22,6 @@ class Schedule:
 
     def sample_variances(self):
         t = np.random.randint(1, self.timesteps)
-        # list of variances by t=index
         variance = []
         for i in range(t):
             i_v = i if self.type == "linear" else i ** 2
@@ -50,8 +49,7 @@ class NoisyDataset(Dataset):
 def apply_noise(noise_fn, data, schedule):
     noisy_data = data.copy()
     # loop over variance steps
-    for i in range(len(schedule)):
-        variance = schedule[i]
+    for variance in schedule:
         # add noise to data
         noisy_data += noise_fn(noisy_data.shape, variance)
     return noisy_data
@@ -76,39 +74,7 @@ def exponential(shape, var):
     return np.random.exponential(scale=s, size=shape) - s
 
 
-ALL_NOISE = {"normal": normal, "gumbel": gumbel, "logistic": logistic, "exponential": exponential}
-# Deprecated
-# Apply Markov chain noise to the data
-def apply_markov_noise(data, steps, step_size, noise_type):
-    noisy_data = data.copy()
-    for i in range(steps):
-        if noise_type == "normal":
-            noisy_data += np.random.normal(scale=step_size, size=noisy_data.shape)
-        elif noise_type == "laplace":
-            noisy_data += np.random.laplace(loc=0, scale=step_size, size=noisy_data.shape)
-        elif noise_type == "uniform":
-            noisy_data += np.random.uniform(low=-step_size, high=step_size, size=noisy_data.shape)
-        elif noise_type == "poisson":
-            noisy_data += np.random.poisson(lam=step_size, size=noisy_data.shape)
-        elif noise_type == "binomial":
-            noisy_data += np.random.binomial(n=1, p=0.5, size=noisy_data.shape) * step_size
-        elif noise_type == "exponential":
-            noisy_data += np.random.exponential(scale=step_size, size=noisy_data.shape)
-        elif noise_type == "gamma":
-            noisy_data += np.random.gamma(shape=2.0, scale=step_size, size=noisy_data.shape)
-        elif noise_type == "beta":
-            noisy_data += np.random.beta(a=0.5, b=0.5, size=noisy_data.shape) * step_size
-        elif noise_type == "chisquare":
-            noisy_data += np.random.chisquare(df=2, size=noisy_data.shape)
-        elif noise_type == "rayleigh":
-            noisy_data += np.random.rayleigh(scale=step_size, size=noisy_data.shape)
-        elif noise_type == "logistic":
-            noisy_data += np.random.logistic(loc=0, scale=step_size, size=noisy_data.shape)
-        elif noise_type == "gumbel":
-            noisy_data += np.random.gumbel(loc=0, scale=step_size, size=noisy_data.shape)
-        else:
-            raise ValueError("Invalid noise argument; unsupported noise type.")
-    return noisy_data
+NOISE = {"normal": normal, "gumbel": gumbel, "logistic": logistic, "exponential": exponential}
 
 
 # Define the neural network
@@ -130,7 +96,7 @@ def denoise_data(loader, model, device):
     model.eval()
     denoised_data = []
     with torch.no_grad():
-        for noisy_data, _ in tqdm(loader, desc="Denoising Test Data"):
+        for noisy_data, _, _ in tqdm(loader, desc="Denoising Test Data"):
             noisy_data = noisy_data.to(device)
             outputs = model(noisy_data.float())
             denoised_data.append(outputs.cpu().numpy())
@@ -147,7 +113,7 @@ def select_one_image_per_label(data, labels):
     return np.array(unique_images), np.array(unique_labels)
 
 
-def plot_images(images, labels, noise_type, num_images=10, title="", save_directory="results/mini_mnist/"):
+def save_images(images, labels, noise_type, num_images=10, title="", save_directory="results/"):
     # Create the directory if it does not exist
     save_directory += noise_type
     if not os.path.exists(save_directory):
@@ -202,20 +168,20 @@ if __name__ == '__main__':
     # Load the dataset
     train_data, train_labels, test_data, test_labels = data.load_all_data('data')
 
-    if noise_type != "all" and noise_type not in ALL_NOISE.keys():
+    if noise_type != "all" and noise_type not in NOISE.keys():
         raise ValueError("Invalid noise type.")
 
-    noise_types = ALL_NOISE if args.noise_type == "all" else {args.noise_type: ALL_NOISE[args.noise_type]}
+    noise_types = NOISE if args.noise_type == "all" else {args.noise_type: NOISE[args.noise_type]}
     for noise_type in noise_types.keys():
         # Create datasets and dataloaders
         schedule = Schedule(timesteps=25, type="linear", start=0.1, increment=0.01)
-        train_dataset = NoisyDataset(train_data, train_labels, ALL_NOISE[noise_type], schedule)
-        test_dataset = NoisyDataset(test_data, test_labels, ALL_NOISE[noise_type], schedule)
+        train_dataset = NoisyDataset(train_data, train_labels, NOISE[noise_type], schedule)
+        test_dataset = NoisyDataset(test_data, test_labels, NOISE[noise_type], schedule)
         model = train_model(train_dataset)
 
         # save generated images to npz file
         denoised_test = denoise_data(DataLoader(test_dataset, batch_size=32, shuffle=True), model, device)
-        out_dir = f"results/mini_mnist/{noise_type}"
+        out_dir = f"results/{noise_type}"
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
         np.savez(out_dir + "/test.npz", denoised_test)
@@ -224,8 +190,8 @@ if __name__ == '__main__':
         unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
 
         # Generate noisy versions
-        test_schedule = schedule.sample_variances()
-        unique_noisy_images = apply_noise(ALL_NOISE[noise_type], unique_test_images, test_schedule)
+        _, test_variances = schedule.sample_variances()
+        unique_noisy_images = apply_noise(NOISE[noise_type], unique_test_images, test_variances)
 
         # Generate denoised versions
         unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32).to(device)
@@ -235,6 +201,6 @@ if __name__ == '__main__':
         unique_denoised_images = unique_denoised_images_tensor.cpu().numpy()
 
         # Visualize original, noisy, and denoised images
-        plot_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
-        plot_images(unique_noisy_images, unique_test_labels, noise_type, num_images=10, title="Noisy Images")
-        plot_images(unique_denoised_images, unique_test_labels, noise_type, num_images=10, title="Denoised Images")
+        save_images(unique_test_images, unique_test_labels, noise_type, num_images=10, title="Original Images")
+        save_images(unique_noisy_images, unique_test_labels, noise_type, num_images=10, title="Noisy Images")
+        save_images(unique_denoised_images, unique_test_labels, noise_type, num_images=10, title="Denoised Images")

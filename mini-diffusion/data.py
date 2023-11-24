@@ -1,15 +1,16 @@
+"""
+This data loader script was taking from assignment 3 of CSC311 Fall 2023 at the University of Toronto
+"""
 import zipfile
 import numpy as np
-
 import os
 
-# (PLEASE DO NOT CHANGE) Set random seed:
+
 np.random.seed(1746)
-
 PREFIX = "digit_"
-
 TEST_STEM = "test_"
 TRAIN_STEM = "train_"
+
 
 def check_and_extract_zipfile(filename, data_dir):
     if os.path.isdir(data_dir) and not os.listdir(data_dir):
@@ -19,11 +20,8 @@ def check_and_extract_zipfile(filename, data_dir):
         zip_f.extractall(data_dir)
         zip_f.close()
 
+
 def load_data(data_dir, stem):
-    """
-    Loads data from either the training set or the test set and returns the pixel values and
-    class labels
-    """
     data = []
     labels = []
     for i in range(0, 10):
@@ -37,16 +35,8 @@ def load_data(data_dir, stem):
     labels = np.reshape(labels, (-1))
     return data, labels
 
-def load_all_data(data_dir, shuffle=True):
-    '''
-    Loads all data from the given data directory.
 
-    Returns four numpy arrays:
-        - train_data
-        - train_labels
-        - test_data
-        - test_labels
-    '''
+def load_all_data(data_dir, shuffle=True):
     if not os.path.isdir(data_dir):
         raise OSError('Data directory {} does not exist. Try "load_all_data_from_zip" function first.'.format(data_dir))
 
@@ -61,36 +51,13 @@ def load_all_data(data_dir, shuffle=True):
 
     return train_data, train_labels, test_data, test_labels
 
+
 def load_all_data_from_zip(zipfile, data_dir, shuffle=True):
-    '''
-    Unzips data in zipfile into folder data_dir, then returns all of the data.
-
-    Inputs:
-        - zipfile: string path to hw4digits.zip zipfile
-        - data_dir: path to directory to extract zip file
-        - shuffle: whether to randomly permute the data (true by default)
-
-    Returns four numpy arrays:
-        - train_data
-        - train_labels
-        - test_data
-        - test_labels
-    '''
     check_and_extract_zipfile(zipfile, data_dir)
     return load_all_data(data_dir, shuffle)
 
+
 def get_digits_by_label(digits, labels, query_label):
-    '''
-    Return all digits in the provided array which match the query label
-
-    Input:
-        - digits: numpy array containing pixel values for digits
-        - labels: the corresponding digit labels (0-9)
-        - query_label: the digit label for all returned digits
-
-    Returns:
-        - Numpy array containing all digits matching the query label
-    '''
     assert digits.shape[0] == labels.shape[0]
 
     matching_indices = labels == query_label
