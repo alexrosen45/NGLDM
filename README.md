@@ -14,3 +14,11 @@ inside the ```mini-diffusion``` directory. For customization, see the ```apply_m
 python3 diffusion.py --noise_type="laplace" --epochs=1000
 ```
 performs the diffusion forward process using noise sampled from a Laplace distribution with mean 0.
+
+Generated images will be saved to ```results/mini-mnist/noise_name/test.npz```. In the same directory, run 
+
+```sh
+python3 eval.py --fake_data_dir results/mini_mnist/noise_name/test.npz  
+```
+
+to evaluate the FID score of the generated images.

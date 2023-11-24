@@ -41,8 +41,8 @@ class NoisyDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx, ):
-        t, variance = self.schedule.sample_variances()
-        noisy_data = apply_noise(self.noise_fn, self.data[idx], variance)
+        t, variances = self.schedule.sample_variances()
+        noisy_data = apply_noise(self.noise_fn, self.data[idx], variances)
         return noisy_data, self.data[idx], t
 
 
