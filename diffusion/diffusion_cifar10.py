@@ -1,5 +1,3 @@
-from typing import Dict, Optional, Tuple
-from sympy import Ci
 from tqdm import tqdm
 
 import torch
@@ -16,13 +14,20 @@ import os
 
 
 def train_cifar10(
-    n_epoch: int = 250, device: str = "cuda", load_pth: Optional[str] = None
-) -> None:
-
+    epochs = 250,
+    device = "cuda",
+    batch_size = 512,
+    lr = 1e-5,
+    load_pth = None,  # Example: ./models/normal/ngddpm_cifar10.pth
+    noise_type = "normal",
+    model_name = "ngddpm_cifar10",
+    model_dir = "./models",
+    out_dir = "./results",
+):
     ddpm = DDPM(eps_model=NaiveUnet(3, 3, n_feat=128), betas=(1e-4, 0.02), n_T=1000)
 
     if load_pth is not None:
-        ddpm.load_state_dict(torch.load("ddpm_cifar.pth"))
+        ddpm.load_state_dict(torch.load(load_pth))
 
     ddpm.to(device)
 
@@ -37,10 +42,10 @@ def train_cifar10(
         transform=tf,
     )
 
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=16)
-    optim = torch.optim.Adam(ddpm.parameters(), lr=1e-5)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=16)
+    optim = torch.optim.Adam(ddpm.parameters(), lr=lr)
 
-    for i in range(n_epoch):
+    for i in range(epochs):
         print(f"Epoch {i} : ")
         ddpm.train()
 
@@ -63,17 +68,26 @@ def train_cifar10(
             xh = ddpm.sample(8, (3, 32, 32), device)
             xset = torch.cat([xh, x[:8]], dim=0)
             grid = make_grid(xset, normalize=True, value_range=(-1, 1), nrow=4)
-            save_image(grid, f"./contents/ddpm_sample_cifar{i}.png")
+            save_image(grid, f"{out_dir}/{noise_type}/ngddpm_sample{i}.png")
 
-            # save model
-            torch.save(ddpm.state_dict(), f"./ddpm_cifar.pth")
+            torch.save(ddpm.state_dict(), f"{model_dir}/{noise_type}/{model_name}.pth")
 
 
 if __name__ == "__main__":
-    # Directory where the images will be saved
-    output_dir = "./contents"
+    noise_type = "normal"
+    out_dir = "./results"
 
-    # Create the directory if it does not exist
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    train_cifar10()
+    if not os.path.exists(out_dir + "/" + noise_type):
+        os.makedirs(out_dir + "/" + noise_type)
+
+    train_cifar10(
+        epochs = 1,
+        device = "cuda",
+        batch_size = 1,
+        lr = 1e-5,
+        load_pth = None,
+        noise_type = "normal",
+        model_name = "ngddpm_cifar10",
+        model_dir = "./models",
+        out_dir = "./results",
+    )
