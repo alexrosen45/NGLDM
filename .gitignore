@@ -163,5 +163,9 @@ cython_debug/
 /mini-diffusion/results
 /diffusion/models
 /diffusion/data
+/diffusion/contents
+/diffusion/results
+/diffusion/runs
+/diffusion/ddpm_cifar.pth
 /.idea
 .DS_Store

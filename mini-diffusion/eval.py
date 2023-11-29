@@ -1,89 +1,64 @@
-"""
-python3 eval.py --fake_data_dir path/to/fake
-"""
-
-import torch
-# from torch import nn, optim
-import torch.nn.functional as F
 import argparse
-import blobfile as bf
 import numpy as np
-import torch.multiprocessing
+import torch
+from torchvision import transforms
+from torchvision.models import inception_v3
+from scipy import linalg
+from tqdm import tqdm
 
-from ignite.engine import *
-from ignite.metrics import *
-import data
-torch.multiprocessing.set_sharing_strategy('file_system')
+def calculate_fid_score(real_features, gen_features):
+    mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
+    mu2, sigma2 = gen_features.mean(axis=0), np.cov(gen_features, rowvar=False)
+    ssdiff = np.sum((mu1 - mu2) ** 2)
+    covmean = linalg.sqrtm(sigma1.dot(sigma2), disp=False)[0]
+    fid = ssdiff + np.trace(sigma1 + sigma2 - 2 * covmean)
+    return fid
 
-#TODO: Add better inception model for this domain
+def get_features_from_model(images, model, device):
+    model.eval()
+    batch_size = 32  # You can adjust the batch size depending on your GPU
+    features = []
+    with torch.no_grad():
+        for i in tqdm(range(0, len(images), batch_size), desc="Processing images"):
+            batch = images[i:i + batch_size]
+            if len(batch.shape) == 3:  # Add batch dimension if it's missing
+                batch = batch.unsqueeze(0)
+            batch = batch.to(device)
+            features.append(model(batch)[0].view(batch.size(0), -1).cpu().numpy())
+    return np.concatenate(features, axis=0)
 
-def eval_step(engine, batch):
-    return batch
-
-
-def main():
-    args = create_argparser().parse_args()
-    # Image dimension
-    d = args.image_size
-
-    _, _, true_data, _ = data.load_all_data('data')
-
-    fake_data = load_fake_data(args.fake_data_dir)
-
-    # Will extract this into a function later
-    x = torch.from_numpy(true_data[:args.num_samples])
-    # Change to square image
-    x = np.reshape(x, (x.size()[0], 1, d, d))
-    # Repeat in three channels
-    x = x.repeat(1, 3, 1, 1)
-    # Normalize brightness values
-    x = x / 127.5 - 1
-    # Expand to 299x299
-    all_true = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=False)
-
-    x = torch.from_numpy(fake_data[:args.num_samples])
-    # Change to square image
-    x = np.reshape(x, (x.size()[0], 1, d, d))
-    # Repeat in three channels
-    x = x.repeat(1, 3, 1, 1)
-    # Normalize brightness values
-    x = x / 127.5 - 1
-    # Expand to 299x299
-    all_fake = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=False)
-
-    default_evaluator = Engine(eval_step)
-    metric = FID()
-    metric.attach(default_evaluator, "fid")
-
-    state = default_evaluator.run([[all_true.float(), all_fake.float()]])
-    print(state.metrics["fid"])
-
-
-def load_fake_data(base_samples):
-    with bf.BlobFile(base_samples, "rb") as f:
-        obj = np.load(f)
-        image_arr = obj["arr_0"]
-    return image_arr
-
-
-def add_dict_to_argparser(parser, default_dict):
-    for k, v in default_dict.items():
-        v_type = type(v)
-        if v is None:
-            v_type = str
-        parser.add_argument(f"--{k}", default=v, type=v_type)
-
+def load_images_from_npz(npz_file):
+    with np.load(npz_file) as data:
+        images = data['arr_0']
+    return torch.tensor(images).float()
 
 def create_argparser():
-    defaults = dict(
-        fake_data_dir="",
-        image_size=8,
-        num_samples=1000
-    )
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
+    parser = argparse.ArgumentParser(description="Evaluate FID Score")
+    parser.add_argument("--real_images_npz", type=str, required=True, help="Path to the NPZ file of real images")
+    parser.add_argument("--generated_images_npz", type=str, required=True, help="Path to the NPZ file of generated images")
     return parser
 
+if __name__ == '__main__':
+    parser = create_argparser()
+    args = parser.parse_args()
 
-if __name__ == "__main__":
-    main()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+
+    # Load images from NPZ files
+    real_images = load_images_from_npz(args.real_images_npz).to(device)
+    generated_images = load_images_from_npz(args.generated_images_npz).to(device)
+
+    # Normalize the images if required (depending on how they were saved)
+    # For example, if images are saved in the range [0, 1]:
+    # transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    # real_images = transform(real_images)
+    # generated_images = transform(generated_images)
+
+    # Calculate features
+    real_features = get_features_from_model(real_images, inception_model, device)
+    generated_features = get_features_from_model(generated_images, inception_model, device)
+
+    # Calculate FID Score
+    fid_score = calculate_fid_score(real_features, generated_features)
+    print(f"FID Score: {fid_score}")

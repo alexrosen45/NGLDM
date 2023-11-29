@@ -9,6 +9,7 @@ import data
 from tqdm import tqdm
 import os
 import argparse
+from noise import NOISE
 
 
 # Variance scheduling
@@ -53,28 +54,6 @@ def apply_noise(noise_fn, data, schedule):
         # add noise to data
         noisy_data += noise_fn(noisy_data.shape, variance)
     return noisy_data
-
-
-def normal(shape, var):
-    return np.random.normal(scale=math.sqrt(var), size=shape)
-
-
-def logistic(shape, var):
-    s = math.sqrt((3 * var) / (math.pi ** 2))
-    return np.random.logistic(loc=0, scale=s, size=shape)
-
-
-def gumbel(shape, var):
-    s = math.sqrt((6 * var) / (math.pi ** 2))
-    return np.random.gumbel(loc=0, scale=s, size=shape) - s * 0.57721
-
-
-def exponential(shape, var):
-    s = math.sqrt(var)
-    return np.random.exponential(scale=s, size=shape) - s
-
-
-NOISE = {"normal": normal, "gumbel": gumbel, "logistic": logistic, "exponential": exponential}
 
 
 # Define the neural network
@@ -184,7 +163,10 @@ if __name__ == '__main__':
         out_dir = f"results/{noise_type}"
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
-        np.savez(out_dir + "/test.npz", denoised_test)
+
+        # Save real and generated (denoised) images to npz file
+        np.savez(out_dir + "/real_images.npz", test_data)
+        np.savez(out_dir + "/generated_images.npz", denoised_test)
 
         # Select one image per label from test data
         unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
