@@ -6,19 +6,15 @@
 
  Noise      | Score |
 | ----------- | ----------- |
-| Guassian   | 2.159e-08 |
-| Beta   | 1.789e-09 |
-| Binomial   | 3.770e-09 |
-| Chisquare   | 2.486e-07 |
-| Exponential   | 1.966e-08 |
-| Gamma   | 4.417e-08 |
-| Gumbel   | 3.521e-08 |
-| Laplace   | 3.842e-08 |
-| Logistic   | 6.072e-08|
-| Poisson   | 9.191e-08 |
-| Rayleigh   | 8.841e-09 |
-| Uniform   | 4.721e-09
- |
+| Gaussian   | 9.170e-08 |
+| Binomial   | 1.01e-10 |
+| Exponential   | 8.988e-08 |
+| Gamma   | 9.181e-08 |
+| Gumbel   | 8.824e-08|
+| Laplace   | 9.012e-08|
+| Logistic   | 9.698e-08|
+| Poisson   | 6.521e-08 |
+| Uniform   | 9.746e-08 |
 
 
 

@@ -11,6 +11,7 @@ import os
 import argparse
 from noise import NOISE
 
+TOTAL_TIME = 25
 
 # Variance scheduling
 class Schedule:
@@ -44,7 +45,7 @@ class NoisyDataset(Dataset):
     def __getitem__(self, idx, ):
         t, variances = self.schedule.sample_variances()
         noisy_data = apply_noise(self.noise_fn, self.data[idx], variances)
-        return noisy_data, self.data[idx], t
+        return noisy_data, self.data[idx], torch.tensor([t])
 
 
 def apply_noise(noise_fn, data, schedule):
@@ -60,11 +61,12 @@ def apply_noise(noise_fn, data, schedule):
 class DenoisingNet(nn.Module):
     def __init__(self):
         super(DenoisingNet, self).__init__()
-        self.fc1 = nn.Linear(64, 128)
+        self.fc1 = nn.Linear(64 + 1, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 64)
 
-    def forward(self, x):
+    def forward(self, x, t):
+        x = torch.cat((x, t), 1)
         x = torch.relu(self.fc1(x))
         x = self.fc2(x)
         return self.fc3(x)
@@ -75,9 +77,9 @@ def denoise_data(loader, model, device):
     model.eval()
     denoised_data = []
     with torch.no_grad():
-        for noisy_data, _, _ in tqdm(loader, desc="Denoising Test Data"):
+        for noisy_data, _, timesteps in tqdm(loader, desc="Denoising Test Data"):
             noisy_data = noisy_data.to(device)
-            outputs = model(noisy_data.float())
+            outputs = model(noisy_data.float(), timesteps / TOTAL_TIME)
             denoised_data.append(outputs.cpu().numpy())
     return np.concatenate(denoised_data, axis=0)
 
@@ -124,7 +126,7 @@ def train_model(train_dataset):
         for noisy_data, clean_data, timesteps in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
             noisy_data, clean_data = noisy_data.to(device), clean_data.to(device)
             optimizer.zero_grad()
-            outputs = model(noisy_data.float())
+            outputs = model(noisy_data.float(), timesteps / TOTAL_TIME)
             loss = criterion(outputs, clean_data.float())
             loss.backward()
             optimizer.step()
@@ -150,10 +152,13 @@ if __name__ == '__main__':
     if noise_type != "all" and noise_type not in NOISE.keys():
         raise ValueError("Invalid noise type.")
 
+    schedule = Schedule(timesteps=TOTAL_TIME, type="linear", start=0.01, increment=0.01)
+    t, test_variances = schedule.sample_variances()
+    t = [[t / TOTAL_TIME]] * 10
+
     noise_types = NOISE if args.noise_type == "all" else {args.noise_type: NOISE[args.noise_type]}
     for noise_type in noise_types.keys():
         # Create datasets and dataloaders
-        schedule = Schedule(timesteps=25, type="linear", start=0.1, increment=0.01)
         train_dataset = NoisyDataset(train_data, train_labels, NOISE[noise_type], schedule)
         test_dataset = NoisyDataset(test_data, test_labels, NOISE[noise_type], schedule)
         model = train_model(train_dataset)
@@ -163,7 +168,6 @@ if __name__ == '__main__':
         out_dir = f"results/{noise_type}"
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
-
         # Save real and generated (denoised) images to npz file
         np.savez(out_dir + "/real_images.npz", test_data)
         np.savez(out_dir + "/generated_images.npz", denoised_test)
@@ -172,13 +176,13 @@ if __name__ == '__main__':
         unique_test_images, unique_test_labels = select_one_image_per_label(test_data, test_labels)
 
         # Generate noisy versions
-        _, test_variances = schedule.sample_variances()
         unique_noisy_images = apply_noise(NOISE[noise_type], unique_test_images, test_variances)
 
         # Generate denoised versions
         unique_noisy_images_tensor = torch.tensor(unique_noisy_images, dtype=torch.float32).to(device)
+        timesteps = torch.tensor(t, dtype=torch.float32).to(device)
         with torch.no_grad():
-            unique_denoised_images_tensor = model(unique_noisy_images_tensor)
+            unique_denoised_images_tensor = model(unique_noisy_images_tensor, timesteps)
         # Move tensor back to CPU if needed for further processing
         unique_denoised_images = unique_denoised_images_tensor.cpu().numpy()
 
