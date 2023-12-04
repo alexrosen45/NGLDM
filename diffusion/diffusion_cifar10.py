@@ -72,7 +72,7 @@ def train_cifar10(
 
 
 if __name__ == "__main__":
-    noise_type = "uniform"
+    noise_type = "normal"
     model_dir = "./models/cifar10"
     out_dir = "./results"
 

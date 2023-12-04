@@ -37,10 +37,33 @@ class NGLDM(nn.Module):
         # mean = 0
         # var = math.sqrt(1 / 2)
         # dist = torch.distributions.Laplace(loc=mean, scale=var)
-        low, high = -math.sqrt(3), math.sqrt(3)
+        # low, high = -math.sqrt(3), math.sqrt(3)
         
-        dist = torch.distributions.Uniform(low=low, high=high)
+        # dist = torch.distributions.Uniform(low=low, high=high)
+
+        # loc = 1
+        # scale = 2
+        # dist = torch.distributions.Gumbel(loc, scale)
+
+        # # Sample from the distribution
+        # epsilon_t = dist.sample(x.shape).to(x.device)
+
+        # # Calculate the mean and standard deviation of the Gumbel distribution
+        # euler_constant = 0.5772
+        # mean = loc + euler_constant * scale
+        # std_dev = (math.pi / math.sqrt(6)) * scale
+
+        # # Standardize the sample to have mean 0 and std dev 1
+        # epsilon_t = (epsilon_t - mean) / std_dev
+
+        # loc = 1
+        # scale = 2
+        # dist = torch.distributions.Gumbel(loc, scale)
+        dist = torch.distributions.Normal(loc=1, scale=1)
+
+        # Sample from the distribution
         epsilon_t = dist.sample(x.shape).to(x.device)
+        
 
         # TODO: This should be passed into the latent space
         # x_t is the first parameter of epsilon_{theta_1} where theta_1
@@ -51,11 +74,11 @@ class NGLDM(nn.Module):
         return self.criterion(epsilon_t, self.eps_model(x_t, t / self.T))
 
     def sample(self, n_sample: int, size, device) -> torch.Tensor:
-        low, high = -math.sqrt(3), math.sqrt(3)
-        
-        dist = torch.distributions.Uniform(low=low, high=high)
+        dist = torch.distributions.Normal(loc=1, scale=1)
 
+        # Sample from the distribution
         x_i = dist.sample((n_sample, *size)).to(device)
+        
 
         for i in range(self.T, 0, -1):
             z = dist.sample((n_sample, *size)).to(device) if i > 1 else 0
