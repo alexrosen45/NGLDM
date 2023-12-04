@@ -1,18 +1,18 @@
 import torch
 from torchvision.utils import save_image
-from minidiffusion.unet import NaiveUnet
-from minidiffusion.ddpm import DDPM
+from unet import Unet
+from ngldm import NGLDM
 import os
 
 
-def load_model(model_path, device = "cuda") -> DDPM:
-    ddpm = DDPM(eps_model=NaiveUnet(3, 3, n_feat=128), betas=(1e-4, 0.02), n_T=1000)
-    ddpm.load_state_dict(torch.load(model_path, map_location=device))
-    ddpm.to(device)
-    return ddpm
+def load_model(model_path, device = "cuda") -> NGLDM:
+    ngldm = NGLDM(eps_model=Unet(3, 3, n_feat=128), betas=(1e-4, 0.02), T=1000)
+    ngldm.load_state_dict(torch.load(model_path, map_location=device))
+    ngldm.to(device)
+    return ngldm
 
 
-def generate_images(model: DDPM, num_images, device = "cuda") -> torch.Tensor:
+def generate_images(model: NGLDM, num_images, device = "cuda") -> torch.Tensor:
     model.eval()
     with torch.no_grad():
         generated_images = model.sample(num_images, (3, 32, 32), device)
@@ -26,18 +26,18 @@ def save_generated_images(images: torch.Tensor, directory, prefix = "gen_image")
 
 if __name__ == "__main__":
     device = "cuda"
-    model_path = "./models/test/ddpm_cifar.pth"
+    model_path = "./models/cifar10/uniform/ngldm_cifar10_100.pth"
     num_images = 10  # Number of images to generate
-    output_dir = "./generated_images/test1"
+    output_dir = "./generated_images/uniform"
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     # Load the trained model
-    ddpm_model = load_model(model_path, device)
+    ngldm_model = load_model(model_path, device)
 
     # Generate images
-    images = generate_images(ddpm_model, num_images, device)
+    images = generate_images(ngldm_model, num_images, device)
 
     # Save the generated images
     save_generated_images(images, output_dir)

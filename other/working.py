@@ -68,11 +68,11 @@ def train_cifar10(
             grid = make_grid(xset, normalize=True, value_range=(-1, 1), nrow=4)
             save_image(grid, f"{out_dir}/{noise_type}/ngldm_sample{i}.png")
 
-            torch.save(ngldm.state_dict(), f"{model_dir}/{noise_type}/{model_name}_{i}.pth")
+            torch.save(ngldm.state_dict(), f"{model_dir}/{noise_type}/{model_name}.pth")
 
 
 if __name__ == "__main__":
-    noise_type = "uniform"
+    noise_type = "normal"
     model_dir = "./models/cifar10"
     out_dir = "./results"
 
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         os.makedirs(model_dir + "/" + noise_type)
 
     train_cifar10(
-        epochs = 200,
+        epochs = 20,
         device = "cuda",
         batch_size = 10,
         lr = 1e-5,

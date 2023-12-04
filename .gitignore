@@ -168,5 +168,7 @@ cython_debug/
 /diffusion/runs
 /diffusion/ddpm_cifar.pth
 /diffusion/generated_images
+/diffusion/eval
 /.idea
+/miscellaneous
 .DS_Store

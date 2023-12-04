@@ -1,27 +1,26 @@
 from typing import Dict, Tuple
 
-
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+import math
 
 
-class DDPM(nn.Module):
+class NGLDM(nn.Module):
     def __init__(
         self,
         eps_model: nn.Module,
         betas: Tuple[float, float],
-        n_T: int,
+        T: int,
         criterion: nn.Module = nn.MSELoss(),
     ) -> None:
-        super(DDPM, self).__init__()
+        super(NGLDM, self).__init__()
         self.eps_model = eps_model
 
         # register_buffer allows us to freely access these tensors by name. It helps device placement.
-        for k, v in ddpm_schedules(betas[0], betas[1], n_T).items():
+        for k, v in ngldm_schedules(betas[0], betas[1], T).items():
             self.register_buffer(k, v)
 
-        self.n_T = n_T
+        self.T = T
         self.criterion = criterion
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -30,27 +29,38 @@ class DDPM(nn.Module):
         This implements Algorithm 1 in the paper.
         """
 
-        _ts = torch.randint(1, self.n_T + 1, (x.shape[0],)).to(x.device)
-        # t ~ Uniform(0, n_T)
-        eps = torch.randn_like(x)  # eps ~ N(0, 1)
+        # Sample timestep uniformly from {0,...,T}
+        t = torch.randint(1, self.T + 1, (x.shape[0],)).to(x.device)
+        # Sample epsilon_t from D
+        # epsilon_t = torch.normal(mean=0, std=self.var(t.to(torch.int32)))
+        # TODO: Schedule
+        # mean = 0
+        # var = math.sqrt(1 / 2)
+        # dist = torch.distributions.Laplace(loc=mean, scale=var)
+        low, high = -math.sqrt(3), math.sqrt(3)
+        
+        dist = torch.distributions.Uniform(low=low, high=high)
+        epsilon_t = dist.sample(x.shape).to(x.device)
 
-        x_t = (
-            self.sqrtab[_ts, None, None, None] * x
-            + self.sqrtmab[_ts, None, None, None] * eps
-        )  # This is the x_t, which is sqrt(alphabar) x_0 + sqrt(1-alphabar) * eps
-        # We should predict the "error term" from this x_t. Loss is what we return.
-
-        return self.criterion(eps, self.eps_model(x_t, _ts / self.n_T))
+        # TODO: This should be passed into the latent space
+        # x_t is the first parameter of epsilon_{theta_1} where theta_1
+        # is the parameterization of our prediction of epsilon_t
+        x_t = (self.sqrtab[t, None, None, None] * x + self.sqrtmab[t, None, None, None] * epsilon_t)
+        
+        # Return MSE loss
+        return self.criterion(epsilon_t, self.eps_model(x_t, t / self.T))
 
     def sample(self, n_sample: int, size, device) -> torch.Tensor:
+        low, high = -math.sqrt(3), math.sqrt(3)
+        
+        dist = torch.distributions.Uniform(low=low, high=high)
 
-        x_i = torch.randn(n_sample, *size).to(device)  # x_T ~ N(0, 1)
+        x_i = dist.sample((n_sample, *size)).to(device)
 
-        # This samples accordingly to Algorithm 2. It is exactly the same logic.
-        for i in range(self.n_T, 0, -1):
-            z = torch.randn(n_sample, *size).to(device) if i > 1 else 0
+        for i in range(self.T, 0, -1):
+            z = dist.sample((n_sample, *size)).to(device) if i > 1 else 0
             eps = self.eps_model(
-                x_i, torch.tensor(i / self.n_T).to(device).repeat(n_sample, 1)
+                x_i, torch.tensor(i / self.T).to(device).repeat(n_sample, 1)
             )
             x_i = (
                 self.oneover_sqrta[i] * (x_i - eps * self.mab_over_sqrtmab[i])
@@ -60,9 +70,9 @@ class DDPM(nn.Module):
         return x_i
 
 
-def ddpm_schedules(beta1: float, beta2: float, T: int) -> Dict[str, torch.Tensor]:
+def ngldm_schedules(beta1: float, beta2: float, T: int) -> Dict[str, torch.Tensor]:
     """
-    Returns pre-computed schedules for DDPM sampling, training process.
+    Returns pre-computed schedules for NGLDM sampling, training process.
     """
     assert beta1 < beta2 < 1.0, "beta1 and beta2 must be in (0, 1)"
 

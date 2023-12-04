@@ -1,9 +1,5 @@
-"""
-Simple Unet Structure.
-"""
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class Conv3(nn.Module):
@@ -78,9 +74,9 @@ class TimeSiren(nn.Module):
         return x
 
 
-class NaiveUnet(nn.Module):
+class Unet(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, n_feat: int = 256) -> None:
-        super(NaiveUnet, self).__init__()
+        super(Unet, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
 
