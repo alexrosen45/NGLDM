@@ -39,7 +39,6 @@ class UnetDown(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
         return self.model(x)
 
 
@@ -56,7 +55,6 @@ class UnetUp(nn.Module):
     def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
         x = torch.cat((x, skip), 1)
         x = self.model(x)
-
         return x
 
 

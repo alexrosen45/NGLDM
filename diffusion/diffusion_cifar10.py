@@ -1,15 +1,15 @@
-from tqdm import tqdm
-
 import torch
 from torch.utils.data import DataLoader
-
 from torchvision.datasets import CIFAR10
 from torchvision import transforms
 from torchvision.utils import save_image, make_grid
+from tqdm import tqdm
+import os
 
 from unet import Unet
 from ngldm import NGLDM
-import os
+import noise
+
 
 
 def train_cifar10(
@@ -19,11 +19,12 @@ def train_cifar10(
     lr = 1e-5,
     load_pth = None,  # Example: ./models/normal/ngldm_cifar10.pth
     noise_type = "normal",
+    sampler = noise.normal,
     model_name = "ngldm_cifar10",
     model_dir = "./models",
     out_dir = "./results",
 ):
-    ngldm = NGLDM(eps_model=Unet(3, 3, n_feat=128), betas=(1e-4, 0.02), T=1000)
+    ngldm = NGLDM(eps_model=Unet(3, 3, n_feat=128), betas=(1e-4, 0.02), T=1000, sampler=sampler)
 
     if load_pth is not None:
         ngldm.load_state_dict(torch.load(load_pth))
@@ -73,6 +74,7 @@ def train_cifar10(
 
 if __name__ == "__main__":
     noise_type = "normal"
+    sampler = noise.normal
     model_dir = "./models/cifar10"
     out_dir = "./results"
 
@@ -83,12 +85,13 @@ if __name__ == "__main__":
         os.makedirs(model_dir + "/" + noise_type)
 
     train_cifar10(
-        epochs = 200,
+        epochs = 1,
         device = "cuda",
         batch_size = 10,
         lr = 1e-5,
         load_pth = None,
         noise_type = noise_type,
+        sampler = sampler,
         model_name = "ngldm_cifar10",
         model_dir = model_dir,
         out_dir = out_dir,
