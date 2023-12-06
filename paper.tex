@@ -1,0 +1,514 @@
+% CVPR 2022 Paper Template
+% based on the CVPR template provided by Ming-Ming Cheng (https://github.com/MCG-NKU/CVPR_Template)
+% modified and extended by Stefan Roth (stefan.roth@NOSPAMtu-darmstadt.de)
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE  - PLEASE UPDATE FOR FINAL VERSION
+\usepackage{cvpr}      % To produce the REVIEW version
+%\usepackage{cvpr}              % To produce the CAMERA-READY version
+%\usepackage[pagenumbers]{cvpr} % To force page numbers, e.g. for an arXiv version
+
+% Include other packages here, before hyperref.
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{amsthm}
+\usepackage{mathrsfs}
+\usepackage{enumitem}
+
+\newtheorem{theorem}{Theorem}
+\newcommand\norm[1]{\lVert#1\rVert}
+
+% It is strongly recommended to use hyperref, especially for the review version.
+% hyperref with option pagebackref eases the reviewers' job.
+% Please disable hyperref *only* if you encounter grave issues, e.g. with the
+% file validation for the camera-ready version.
+%
+% If you comment hyperref and then uncomment it, you should delete
+% ReviewTempalte.aux before re-running LaTeX.
+% (Or just hit 'q' on the first LaTeX run, let it finish, and you
+%  should be clear).
+\usepackage[pagebackref,breaklinks,colorlinks]{hyperref}
+
+
+% Support for easy cross-referencing
+\usepackage[capitalize]{cleveref}
+\crefname{section}{Sec.}{Secs.}
+\Crefname{section}{Section}{Sections}
+\Crefname{table}{Table}{Tables}
+\crefname{table}{Tab.}{Tabs.}
+
+
+%%%%%%%%% PAPER ID  - PLEASE UPDATE
+\def\cvprPaperID{*****} % *** Enter the CVPR Paper ID here
+\def\confName{CVPR}
+\def\confYear{2022}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\renewcommand{\O}{\mathcal{O}}
+\newcommand{\sidecomment}[1]{\hspace{1em}\(\triangleright\) #1}
+
+
+\begin{document}
+
+%%%%%%%%% TITLE - PLEASE UPDATE
+\title{Non-Gaussian Latent Diffusion Models}
+
+\author{Alex Rosen\\
+University of Toronto\\
+{\tt\small a.rosen@mail.utoronto.ca}
+% For a paper whose authors are all at the same institution,
+% omit the following lines up until the closing ``}''.
+% Additional authors and addresses can be added with ``\and'',
+% just like the second author.
+% To save space, use either the email address or home page, not both
+\and
+Anthony DiMaggio\\
+University of Toronto\\
+{\tt\small anthony.dimaggio@mail.utoronto.ca}
+}
+\maketitle
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+   This paper presents a new perspective on the realm of Latent Diffusion Models (LDMs) and Denoising Diffusion Probabilistic Models (DDPMs), challenging the conventional use of Gaussian noise. We introduce the concept of Non-Gaussian Latent Diffusion Models (NGLDMs), which leverage the rich representational capabilities of non-Gaussian noise distributions. Our work stems from the hypothesis that Gaussian noise, while versatile, may not optimally capture the complex, multimodal distributions often found in real-world data. By incorporating non-Gaussian noise, NGLDMs aim to better represent these complexities, enhancing the model's ability to learn and generate more nuanced and varied data patterns.
+\end{abstract}
+
+%%%%%%%%% BODY TEXT
+\section{Introduction}
+\label{sec:intro}
+
+Non-Gaussian noise in diffusion models can be advantageous for several reasons. First, it allows the model to capture a broader range of data distributions, which might not be well-represented by Gaussian noise alone. This could be particularly relevant in cases where training data exhibits heavy-tailed or multimodal characteristics. Non-Gaussian noise may be able to better mimic these properties, leading to more diverse generation. Additionally, using different types of noise can aid in overcoming limitations associated with Gaussian noise, such as the tendency to smooth out sharp features or details. This is crucial in applications like image and audio generation, where preserving fine-grained details is essential for high-quality outputs. Moreover, experimenting with various noise distributions can potentially improve the robustness of the model, making it more adaptable to different types of data and enhancing its overall performance in generating complex and high-dimensional outputs.
+
+Latent Diffusion Models (LDMs) \cite{DBLP:journals/corr/abs-2112-10752} have emerged as a prominent class of generative models, offering a novel approach to synthesizing high-quality data across various domains, including images, audio, and text. At the heart of LDMs lies the concept of a diffusion process \cite{DBLP:journals/corr/Sohl-DicksteinW15}, a mechanism typically governed by a Markov chain that gradually transforms data into noisier representations; eventually, approximately isotropic Gaussian noise \cite{DBLP:journals/corr/Sohl-DicksteinW15}. The reverse of this process, which involves iteratively denoising the data, is used for generation.
+
+We demonstrate evidence that incorporating non-Gaussian noise in diffusion models, like LDMs and Denoising Diffusion Probabilistic Models (DDPMs) \cite{DBLP:journals/corr/abs-2006-11239}, may enhance their ability to generate more diverse and fine-grain outputs.
+
+\section{Background}
+\label{sec:intro}
+
+\paragraph{\textbf{Diffusion}} Suppose we begin with an element of our training set $x^{(0)}$. Over $T$ steps, we define a Markov chain producing noisier and noisier samples $x^{(0)},\ldots,x^{(T)}$ using a (typically Gaussian) distribution $q(x^{(t)}|x^{(t-1)})$. We learn or specify a Beta schedule $\{\beta_T\}_{t=1}^T$ and calculate
+\begin{equation}
+    x^{(t)}_i=\sqrt{1-\beta_t}x^{(t-1)}_i+\sqrt{\beta_t}\epsilon_t
+\end{equation}
+for $\epsilon_t \overset{\text{iid}}{\sim} q$ to gradually add noise to $x^{(0)}$. We formulate this problem with the goal of finding the reverse distribution $p(x^{(t-1)}|x^{(t)})$ to reproduce $x^{(0)}$ from random noise. 
+
+You may notice we may try applying Bayes' rule
+\begin{equation}
+    p(x^{(t-1)}|x^{(t)})=\frac{q(x^{(t)}|x^{(t-1)})q(x^{(t-1)})}{q(x^{(t)})}
+\end{equation}
+However, this approach is computationally intractable. Instead, since it can be shown that $p$ is Gaussian given $q$ is Gaussian\cite{DBLP:journals/corr/Sohl-DicksteinW15}, we can approximate $p$ by learning a function $p_{\theta}$, a neural network $f=(f_{\mu},f_{\Sigma})$ to parameterize the reverse Gaussian distribution. That is,
+\begin{equation}
+    p_{\theta}(x^{(t-1)}|x^{(t)})\triangleq\mathcal{N}(x^{(t-1)};f_{\mu}(x^{(t)},t),f_{\Sigma}(x^{(t)},t))
+\end{equation}
+To aid the learning process, we also make the variance of $q$ at each step $t$ a function of the Beta schedule (called a variance schedule \cite{DBLP:journals/corr/Sohl-DicksteinW15}), giving our neural network more information about the distribution which produced $x^{(t)}$.
+
+Several modern approaches \cite{DBLP:journals/corr/abs-2011-13456, DBLP:journals/corr/abs-2006-11239, DBLP:journals/corr/abs-2010-02502,DBLP:journals/corr/abs-2102-09672} skip explicit parameterization and use a U-Net (dimension preserving CNN) \cite{DBLP:journals/corr/RonnebergerFB15} to predict the noise $\epsilon$ itself, sometimes utilizing an autoencoder to denoise in a latent space \cite{DBLP:journals/corr/abs-2112-10752}. We take this a step further; what patterns emerge when we employ non-Gaussian noise?
+
+\paragraph{\textbf{DDPMs}} Diffusion in a latent space (LDMs) is relatively self-explanatory rich dimensionality reduction, so we focus on understanding DDPMs for arbitrary distributions instead. For shorthand, call $\alpha_t=1-\beta_t$ and $\overline{a_t}=\prod_{i=1}^t a_i$. Now, for some distribution $\mathcal{D}$, we can write
+\begin{equation}
+    q(x^{(t)}|x^{(t-1)})=\mathcal{D}(x^{(t)};\sqrt{\overline{\alpha}_t}x^{(0)},(1-\overline{\alpha}_t)\mathbb{I})
+\end{equation}
+
+Given the noise $\epsilon$ at timestep $t$, DDPMs aim to predict a function $\epsilon_{\theta_2}$ that takes coupled values $\sqrt{\overline{a}_t}x_0+\sqrt{1-\overline{a}_t}\epsilon$ and $t$ to some denoising space \cite{DBLP:journals/corr/abs-2006-11239, DBLP:journals/corr/abs-2102-09672}. We write this distribution $\mathcal{D}$ as arbitrary for consistency with our new methodology. We also use $\theta_2$ to denote the weights of this denoising function to later introduce an autoencoder with parameters $\theta_1$. This leaves us with the prediction (corresponding to equation (3))
+\begin{equation}
+    f_{\mu}(x^{(t)},t)=\frac{1}{\sqrt{\overline{a}_t}}\left( x^{(t)}-\frac{\beta_t}{\sqrt{1-\overline{a}_t}}\epsilon_{\theta_2}(x^{(t)},t) \right)
+\end{equation}
+and so we predict
+\begin{equation}
+    \hat{x}^{(t)}=\frac{1}{\sqrt{\overline{a}_t}}\left( x^{(t)}-\frac{\beta_t}{\sqrt{1-\overline{a}_t}}\epsilon_{\theta_2}(x^{(t)},t) \right) + \nu_{\mathcal{D}}(\beta_t,t) z
+\end{equation}
+for variance schedule $\nu_{\mathcal{D}}(\beta_t,t)$ and $z\sim \mathcal{D}$. Previously, this was $\sigma_t z$ for $z\sim \mathcal{N}(0,1)$ and standard deviation of the forward distribution $\sigma_t$, typically $\sigma_t=\sqrt{\beta_t}$ \cite{DBLP:journals/corr/abs-2006-11239}.
+
+\section{Related Work}
+\label{sec:intro}
+
+Due to the several directions in which research on Diffusion Models (DMs) has gone (score-based methods \cite{DBLP:journals/corr/abs-2011-13456}, learning terms in the forward process' variance scheduler \cite{DBLP:journals/corr/abs-2006-11239}, implicit probabilistic model approaches \cite{DBLP:journals/corr/abs-2010-02502}, etc.), we settled for building off of recent work on LDMs and DDPMs due to their qualitatively impressive empirical results.
+
+Work has been done exploring non-Gaussian Denoising Diffusion Probabilistic Models (DDPMs) for Gaussian mixtures and gamma distributions \cite{DBLP:journals/corr/abs-2106-07582}, and we have already extensively discussed regular DDPMs.
+
+\begin{figure*}
+  \centering
+  \begin{subfigure}{0.68\linewidth}
+    \includegraphics[width=\linewidth]{latent_architecture.png}
+    \caption{NGLDM (Our) Architecture}
+    \label{fig:short-a}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.28\linewidth}
+    \includegraphics[width=\linewidth]{u-net-architecture.png}
+    \caption{Original U-Net implementation from Ronneberger, Fischer, Brox \cite{DBLP:journals/corr/RonnebergerFB15}}
+    \label{fig:short-b}
+  \end{subfigure}
+  \caption{NGLDM and U-Net Architectures}
+  \label{fig:short}
+\end{figure*}
+
+\section{Methodology}
+\label{sec:intro}
+
+\paragraph{\textbf{Noise Comparisons}} The difficulty in comparing DMs with different noise distributions is dealing with fair amounts of noise creation; under arbitrary variance schedules, it's unclear whether $x^{(T)}$ will be 'pure noise' for all distributions. To deal with this, we build off the work on variance schedulers in the first diffusion paper \cite{DBLP:journals/corr/Sohl-DicksteinW15}, generalizing linear and quadratic variance schedulers to arbitrary distributions (with finite mean and variance).
+
+\begin{theorem}
+    Let $q_1,q_2:\mathbb{R}\mapsto \mathbb{R}$ be two probability distributions with zero mean. If we require the variance schedules of both $q_1$ and $q_2$ to be polynomial functions of $t\in [0,T]$ with the same degree,
+
+    \begin{equation}
+        \lim_{T\to \infty}\frac{\mathbb{E}_{q_1}[\norm{x^{(0)}-x^{(T)}_{q_1}}_2]}{\mathbb{E}_{q_2}[\norm{x^{(0)}-x^{(T)}_{q_2}}_2]}\quad\text{exists}
+    \end{equation}
+\end{theorem}
+
+Appendix section A provides a proof of this theorem and elaborates on our interpretation of it.
+
+Thus, with a sufficiently large number of steps, we expect similar noise for an arbitrary collection of distributions with polynomial (constant, linear or quadratic) variance schedules, allowing for a fair comparison. Implementations should apply normalization to ensure (7) evaluates to one. See Appendix B for the normalization of each distribution we test.
+
+\paragraph{\textbf{Motivation}} Before we delve into to the full NGLDM architecture, we provide results on a dataset comprised of 1100 $8\times 8$ MNIST images (we call mini-MNIST) without an autoencoder or U-Net. We provide these results as a stepping stone for the reader's understanding of the implementation of NGLDMs, and to further motivate the exploration of non-Gaussian noise in diffusion models. This is briefly discussed at the start of the Experiments and Evaluation section.
+
+\paragraph{\textbf{NGLDM architecture}} Now, we discuss the specification and architecture of NGLDMs. Our work makes the following (as far as we know) novel contributions:
+\begin{enumerate}[itemsep=1pt, parsep=1pt]
+  \item We define a general framework for diffusion with noise sampling from arbitrary distributions that can be normalized and have zero mean and finite variance.
+  \item We introduce the usage of several different distributions for DMs that rely on variance schedulers.
+  \item We present compelling results for the use of different sampling distributions for DDPMs in a latent space.
+\end{enumerate}
+
+
+NGLDMs perform DDPM-style diffusion using a U-Net. But, we now sample from the arbitrary distribution $\mathcal{D}$ with zero mean and finite variance, then train the U-Net in a latent space with a pre-trained autoencoder $\mathscr{E}_{\theta_1},\mathscr{D}_{\theta_2}$ (encoder, decoder with parameters $\theta_1$). Figure 1 highlights this setup.
+
+\begin{algorithm}
+\caption{Training}\label{alg:Func}
+\begin{algorithmic}[1]
+\State \textbf{While} {not converged} \textbf{do}
+\State \( x \sim q(\mathscr{E}_{\theta_1}(x_0)) \)
+\State \( t \sim \text{Uniform}(\{1,\ldots,T\}) \)
+\State \( \epsilon_t \sim \mathcal{D}(0, \nu_{\mathcal{D}}(\beta_t,t)) \)
+\State Descend on $\nabla MSE_{\theta_2}(\epsilon_t,\epsilon_{\theta_2}(\sqrt{\overline{a}_t}x+\sqrt{1-\overline{a}_t}\epsilon_t,t))$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Sampling}\label{alg:Func}
+\begin{algorithmic}[1]
+\State \( x \sim \mathcal{D}(0,\nu_{\mathcal{D}}(\beta_T,T)) \)
+\For{$t=T-1$ to $0$}
+    \State \( \mu \gets \frac{1}{\sqrt{\overline{a}_t}}\left( x-\frac{\beta_t}{\sqrt{1-\overline{a}_t}}\epsilon_{\theta_2}(x,t) \right) \)
+    \State \( z \sim  \mathcal{D}(0,\nu_{\mathcal{D}}(\beta_t,t)) \)
+    \State \( x \gets \mu + \nu_{\mathcal{D}}(\beta_t,t)z \)
+\EndFor
+\State \Return \( \mathscr{D}_{\theta_1}(x) \)
+\end{algorithmic}
+\end{algorithm}
+
+Algorithms 1 and 2 are enhancements of the DDPM training and sampling algorithms; the objective function is identical.
+
+We do not derive this objective function by showing that it maximizes variational bounds on likelihood since the distributions we use do not change the derivations found in the original DDPM paper \cite{DBLP:journals/corr/abs-2006-11239}. Instead, we remark on important changes. First, we immediately encode $x\overset{\mathscr{\epsilon}_{\theta_1}}{\to}\text{U-Net input}$. Then, we uniformly sample a timestep to generate noise for. Recall that $\nu_\mathcal{D}$ denotes the variance schedule for our selected distribution. Using \textbf{Theorem 1}, we make $\nu_{\mathcal{D}}$ a function of a polynomial Beta schedule, and recommend that this polynomial be of low degree to match the intuition behind adding noise gradually to our latent input. Finally, we use mean squared error loss to minimize the distance between $\epsilon_{\theta_2}$ and the noise added to our image in (1).
+
+The sampling algorithm repeats the prediction (6) for all $T$ timesteps. We then return the decoded prediction at timestamp zero. It's important to note that at timestamp zero, we apply the constraint $v_{\mathcal{D}}(\beta_0,0)\approx 0$ since our predictions should be nearing 'full-denoise' at this point.
+
+\paragraph{\textbf{Autoencoder}} For high-dimensional datasets, we recommend using a pre-trained autoencoder (learning one simultaneously with the U-Net is not addressed in this paper and defeats the purpose of introducing an autoencoder). The choice of autoencoder should be dealt with on a case-by-case basis to ensure necessary information is retained in the latent space. For example, we recommend that image data be taken from a tensor of (batch size) $\times$ (height) $\times$ (width) $\times$ (color channels) to a tensor of (batch size) $\times$ (new-dimensional) $\times$ (color channels). The reason for using an autoencoder is to lower the burden of fine tuning a CNN; if we already have a useful latent representation of our training data, we don't need to worry about dimensionality reduction causing issues during the difficult training processes with DMs.
+
+\paragraph{\textbf{U-Net Architecture}} Our U-Net implementation is a variation on that found in Figure 1b characterized by double convolution layers and self-attention mechanisms, enhancing its capability to capture complex image patterns. Positional encoding is integrated to maintain temporal context in the diffusion sequence. The architecture's downsampling path distills inputs into a feature-rich representation, while the upsampling path reconstructs the denoised image from these abstract features. This symmetry ensures fidelity in the reconstructed outputs (usually images). We also make use of Siren activations \cite{DBLP:journals/corr/abs-2006-09661}, as per their results on inpainting. As previously mentioned, we modify the original U-Net implementation to use MSE loss.
+
+\section{Experiments and Evaluation}
+\label{sec:intro}
+
+To measure the similarity between our original and generated images, we use the Fréchet Inception Distance (FID) score \cite{DBLP:journals/corr/HeuselRUNKH17}
+\begin{equation}
+    FID=\norm{\mu_1-\mu_2}^2_2+tr(\Sigma_1+\Sigma_2+2\sqrt{\Sigma_1 \Sigma_2})
+\end{equation}
+where $\mu_1,\mu_2,\Sigma_1,\Sigma_2$ are the feature-wise means and covariances of the original and generated images, respectively. We use InceptionV3 \cite{DBLP:journals/corr/SzegedyVISW15} as a feature extractor for our original and generated images and evaluate FID score according to the mean and covariance matrices of the feature vectors that this model outputs. This has become standard for recent evaluations of DMs, with lower scores signifying a generative process that more accurately emulates the target dataset.
+
+\paragraph{\textbf{Preliminary Results}} Before showing results with the U-Net, we provide results in Table 1 on a dataset comprised of 1100 $8\times 8$ pixelated MNIST images. Each model was trained with 1000 epochs using a 3-layer MLP with ReLU activations, and the variance schedulers we use are equal to the Beta schedule that is quadratic in timesteps $t$. All ten MNIST digits -- zero through nine -- were sampled class conditionally. Appendix C shows the ground truth, noised, and denoised images for each distribution in Table 1. Even though these results are on very small images with a relatively plain architecture, they still justify the exploration of Non-Gaussian noise and the importance of defining NGLDMs. These five distributions were chosen due to their numerical stability after normalization and their broad representation of different probability distributions.
+
+\begin{figure}[t]
+  \centering
+   \includegraphics[width=\linewidth]{cifar10_results.png}
+   \caption{NGLDM FID scores per 5 epochs (four distributions)}
+   \label{fig:onecol}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+   \includegraphics[width=\linewidth]{exponential_cifar10.png}
+   \caption{NGLDM FID scores per 5 epochs for (Exponential)}
+   \label{fig:onecol}
+\end{figure}
+
+\paragraph{\textbf{NGLDM Results}} For empirical results, our architecture is identical to the one we defined in the Methodology section. Since it's computationally infeasible to train an optimal variance schedule for each of the five distributions in Table 1, we fix each distribution to have variance 1. We use hyperparameters optimal for Gaussian noise: a total number of $T=1000$ timesteps and a linear Beta schedule from $\beta_1=10^{-4}$ to $\beta_T=0.02$ \cite{DBLP:journals/corr/abs-2006-11239}. We train each model with a batch size of 10 over 200 epochs.
+
+For our evaluation, we chose the CIFAR-10 dataset, comprises of 10 classes with 6000 $32\times 32$ images per class. We also choose a CNN autoencoder that takes these images from $10\times 32\times 32\times 3$ to a $10\times 24\times 24\times 3$ latent space with small reconstruction error. We do not use class-conditional sampling, meaning our results are for an entirely unsupervised process.
+
+Table 2 shows the FID scores for the five distributions we choose, and Figure 2 shows the FID scores for the Gaussians, Laplace, Uniform and Gumbel distributions for every 5 epochs (see Appendix C) for the table of FID score values. We separate the FID scores for the Exponential distribution into Figure 3 since they are too large to be included on the same scale; this was somewhat expected due to the nature of the family of Exponential distributions. FID scores were calculated using 1000 randomly generated images and 1000 randomly sampled training images per epoch.
+
+The Gaussian process leads with the lowest FID score among the five distributions. Following in second is the Laplace process. Gumbel and Uniform are third and fourth respectively while Exponential is last by multiple orders of magnitude. These numerical rankings track closely to the qualitative results that come with the generative sampling found in the appendix. Gaussian samples appear the most realistic while Laplace seems to produce smeary, but recognizable visual forms. Uniform and Gumbel samples are less coherent and the Exponential samples are nearly blank.  
+
+
+\begin{table}
+  \centering
+  \begin{tabular}{@{}lc@{}}
+    \toprule
+    Distribution (quadratic $\nu$) & FID score \\
+    \midrule
+    Gaussian & 9.170$\times 10^{-8}$ \\
+    Laplace & 9.012$\times 10^{-8}$ \\
+    Exponential & 8.988$\times 10^{-8}$ \\
+    Uniform & 9.746$\times 10^{-8}$ \\
+    Gumbel & 8.824$\times 10^{-8}$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Simplified NGLDM results on mini-MNIST}
+  \label{tab:example}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{@{}lc@{}lc@{}lc@{}}
+    \toprule
+    Distribution & FID score (195 Epochs) \\
+    \midrule
+    Gaussian & 106.7493 \\
+    Laplace & 154.8286 \\
+    Exponential & 36979.3525 \\
+    Uniform & 275.6154 \\
+    Gumbel & 216.03441 \\
+    \bottomrule
+  \end{tabular}
+  \caption{NGLDM ~final FID scores on CIFAR-10}
+  \label{tab:example}
+\end{table}
+
+
+\section{Limitations of Results}
+\label{sec:intro}
+
+Overreliance on metrics like FID score evaluation with InceptionV3 may lead to an incomplete and unfair evaluation of generative, specifically diffusion, models \cite{stein2023exposing}. Correspondingly, the InceptionV3 model which was used to evaluate FID scores was originally trained on $299\times 299$ images \cite{DBLP:journals/corr/SzegedyVISW15}. As a result, we had to normalize our inputs by interpolating to higher-dimensions, which could have unpredictable effects on the feature vectors we extract. We also do not sample images class conditionally, which could have an effect on the stability of FID score per epoch in Figures 2 and 3. Lastly, our method of evaluation used only fed 1000 pairs of dataset and generated images to InceptionV3 due to computational limitations. However, since the results we provide are specific to this paper and do not claim to achieve a state-of-the-art FID score, this should not be an issue.
+
+The Beta schedules used in this paper were not fine tuned (up to a constant factor). This may hinder the ability of Non-Gaussian distributions to match the performance of the Gaussian distribution on the hyperparameters we chose. Ideally, for each distribution, one should fine tune the Beta schedule and total number of time steps. Then, all distributions should be tested with each hyperparameter set to determine which performs the best overall.
+
+This paper does not address non-monotonic Beta schedules like the seminal work on cosine schedules for Improved DDPMs \cite{DBLP:journals/corr/abs-2102-09672}.
+
+The final limitation of our results is the use of a specific autoencoder and dataset. Even though our dataset is common practice, diffusion models are usually tailored to generating images with much higher resolution than $32\times 32$ pixels. Moreover, it's extremely difficult to determine the extent to which our choice of autoencoder has impacted the results in Tables 2 and 3 (Appendix SECTION HERE).
+
+\section{Conclusion}
+\label{sec:intro}
+
+Determining the best type of noise for a DM using a validation set is computationally expensive for state-of-the-art DM architectures. However, our work shows the importance of giving equal attention to all reasonable distributions.
+
+At first glance, it may seem that Tables 2 and 3 show that Gaussian distributions should always be used for DDPM-related diffusion processes in a latent space. But, since we use a Beta schedule and number of timesteps fine tuned for the Gaussian distribution, the takeaway should be that Non-Gaussian distributions have a lot of promise -- after normalization, they performed very well on an arbitrary hyperparameter set. The Laplace distribution, in particular, seems to be an excellent candidate for further research. Its strong FID scores (and the relatively realistic images it can generate) indicate that it has the potential to be used effectively in DMs. 
+
+Going forward, we postulate that if suitable resources are dedicated to diffusion with Non-Gaussian distributions found in this paper, except for the Exponential family with it's current parameterization, there will be strong empirical results that match or exceed the performace of Gaussian noise for various DMs\footnote{In particular, we are excited about further exploring their relation to implicit regularization of diffusion on class-inbalanced datasets \cite{qin2023classbalancing}}.
+
+%%%%%%%%% REFERENCES
+{\small
+\bibliographystyle{ieee_fullname}
+\bibliography{egbib}
+}
+
+\pagebreak
+\appendix
+\section{On Theorem 1.}
+We provide a straightforward proof of \textbf{Theorem 1}.
+\begin{proof}
+    Notice that $Var_{q_1}(x_{q_1}^{(T)})/Var_{q_2}(x_{q_2}^{(T)})\to c$ for a ratio of coefficients $c\in \mathbb{R}$ as $T\to \infty$, so $q_1$ and $q_2$ have asymptotically equivalent Beta schedules up to a constant factor. Since $\mathbb{E}[x^{(T)}]$ is zero for both $q_1$ and $q_2$, (7) follows immediately.
+\end{proof}
+We conjecture (7) holds for any metric that induces the same topology as the Euclidean norm; this would encompass broader interpretations of what it means for both $x^{(T)}$s to have similar noise. In fact, by the equivalence of norms theorem in finite-dimensional spaces (in our case, a latent space defined by a pre-trained autoencoder), it's clear this holds for the class of probability distributions with compact support.
+
+Formalizing the convergence of individual distributions to isotropic noise can be done by defining a suitable Gaussian mixture approximation (finite linear combination) and applying the central limit theorem. However, it should already be clear that each $x^{(T)}$ lies very close to isotropic noise for large $T$.
+
+\section{Normalization for Variance Schedules}
+
+\subsection{Laplace Schedule}
+
+A Laplace distribution is defined by its location parameter $\mu$ and its scale parameter $b$. The variance is given by $\sigma^2 = 2b^2$. Therefore, a normalized Laplace distribution with variance $\sigma^2$ and mean 0 is given by
+
+
+\begin{equation}x \sim \textit{Laplace}(\mu,\tfrac{1}{2}\sqrt{2}\sigma) - \mu
+\end{equation}
+
+\subsection{Exponential Schedule}
+
+An exponential distribution is defined by its rate parameter $\lambda$. Its variance $\sigma^2 = \frac{1}{\lambda^2}$ and mean $\mu = \frac{1}{\lambda}$. Therefore, a normalized exponential distribution with variance $\sigma^2$ and mean 0 is given by
+
+
+\begin{equation}x \sim \textit{Exponential}(\sigma^{-1}) - \sigma
+\end{equation}
+
+\subsection{Uniform Schedule}
+
+A uniform distribution is defined by its left endpoint $a$ and right endpoint $b$. Its variance $\sigma^2 = \frac{1}{12}(b-a)^2$ and mean $\mu = \frac{1}{2}(a+b)$. Therefore, a normalized uniform distribution with variance $\sigma^2$ and mean 0 may be given by
+
+
+\begin{equation}x \sim \textit{Uniform}(-\sqrt{3}\sigma, \sqrt{3}\sigma)
+\end{equation}
+
+\subsection{Gumbel Schedule}
+
+A Gumbel distribution is defined by its location parameter $\mu$ and scale parameter $\beta$. Its variance  $\sigma^2 = \frac{\pi^2}{6}\beta^2$ and mean $\mu =  \mu +\beta \gamma $. Here, $\gamma$ is the Euler-Mascheroni constant. Therefore, a normalized Gumbel distribution with variance $\sigma^2$ and mean 0 is given by
+
+
+\begin{equation}x \sim \textit{Gumbel}(\mu, \tfrac{1}{\pi}\sqrt{6}\sigma) - \mu
+\end{equation}
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{normal_mnist.png}
+  \caption{Reconstructing mini-MNIST digits with a Gaussian Distribution}
+  \hfill
+\end{figure*}
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{laplace_mnist.png}
+  \caption{Reconstructing mini-MNIST digits with a Laplace Distribution}
+  \hfill
+\end{figure*}
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{exponential_mnist.png}
+  \caption{Reconstructing mini-MNIST digits with a Exponential Distribution}
+  \hfill
+\end{figure*}
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{uniform_mnist.png}
+  \caption{Reconstructing mini-MNIST digits with a Uniform Distribution}
+  \hfill
+\end{figure*}
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{gumbel_mnist.png}
+  \caption{Reconstructing mini-MNIST digits with a Gumbel Distribution}
+  \hfill
+\end{figure*}
+
+\onecolumn
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|c|c|c|c|}
+\hline
+Epoch & Laplace & Gumbel & Uniform & Normal & Exponential \\
+\hline
+0 & 268.1056557 & 251.2740632 & 270.0634643 & 266.9291678 & 318.6531796 \\
+5 & 157.3126921 & 253.8174679 & 230.5092954 & 135.737243 & 447.6921086 \\
+10 & 150.9185785 & 246.4045468 & 266.7415038 & 106.1923181 & 730.6264131 \\
+15 & 176.8930956 & 270.1623105 & 276.624439 & 124.9588554 & 2717.131688 \\
+20 & 164.7170631 & 231.5613226 & 277.5758688 & 107.4451271 & 3650.396717 \\
+25 & 139.5908094 & 237.4061213 & 264.2943547 & 116.1540425 & 4424.805277 \\
+30 & 141.5669594 & 243.5995689 & 274.213411 & 127.6426312 & 6678.359161 \\
+35 & 180.6007834 & 269.304368 & 240.7663527 & 113.0123188 & 6450.739959 \\
+40 & 172.596155 & 204.9392745 & 282.0411274 & 115.0629514 & 11559.30675 \\
+45 & 147.7198741 & 227.7273174 & 265.4038144 & 85.86670144 & 11768.68373 \\
+50 & 145.2447349 & 215.7221362 & 278.6689809 & 89.11753888 & 13693.35558 \\
+55 & 151.7061057 & 229.4829084 & 291.6668644 & 66.70781039 & 14015.43663 \\
+60 & 142.3617389 & 221.1606855 & 286.3633091 & 62.91842862 & 17424.18798 \\
+65 & 126.6099856 & 226.1844925 & 268.6310042 & 70.31062857 & 17037.72261 \\
+70 & 147.0927329 & 219.6846262 & 297.6037648 & 82.59808834 & 19437.80112 \\
+75 & 166.0740835 & 246.8925304 & 279.0493569 & 77.32760468 & 20785.49808 \\
+80 & 180.4502931 & 228.5544348 & 306.0410487 & 60.42279324 & 19470.54684 \\
+85 & 141.1165137 & 220.7173446 & 293.0778678 & 76.74570448 & 20363.03691 \\
+90 & 120.8379729 & 246.499311 & 296.4991739 & 60.62629323 & 21601.75214 \\
+95 & 143.7035071 & 231.4845808 & 287.0856329 & 71.28826389 & 23772.28874 \\
+100 & 182.8384657 & 222.2526664 & 294.168324 & 97.84723262 & 27107.40562 \\
+105 & 160.6087373 & 231.3435938 & 272.6480419 & 72.0440881 & 26510.34647 \\
+110 & 147.1846294 & 231.6277487 & 288.3832348 & 61.57052341 & 24657.54293 \\
+115 & 142.0004575 & 215.4944458 & 272.9828056 & 74.0609736 & 25201.56406 \\
+120 & 110.5092249 & 209.4934746 & 296.9113835 & 87.70818699 & 28102.17863 \\
+125 & 137.9327004 & 218.931097 & 272.4134174 & 66.0189349 & 25883.06417 \\
+130 & 132.7267073 & 224.7058487 & 285.5970579 & 93.06749597 & 29444.59922 \\
+135 & 142.029835 & 231.8967656 & 276.9055742 & 66.8229123 & 29236.60333 \\
+140 & 148.6651328 & 245.5879731 & 257.2445401 & 103.4134199 & 30458.70552 \\
+145 & 135.6023648 & 197.034246 & 300.6754556 & 88.70578207 & 31820.72179 \\
+150 & 146.9059478 & 216.5618312 & 264.5090923 & 66.9261366 & 29648.62577 \\
+155 & 181.64835 & 228.2276831 & 266.5868976 & 62.68215431 & 35482.3638 \\
+160 & 205.0435139 & 211.9682431 & 280.058136 & 70.09532486 & 30737.00785 \\
+165 & 167.3643488 & 227.6088393 & 279.0092936 & 92.56378874 & 36846.02216 \\
+170 & 118.1450878 & 215.1973762 & 263.5031509 & 73.74587963 & 36295.42488 \\
+175 & 202.9424257 & 243.4374208 & 254.7504253 & 84.29492585 & 33944.25127 \\
+180 & 158.5573059 & 223.2675658 & 284.6283329 & 62.44670094 & 34564.82892 \\
+185 & 147.5058181 & 218.3242539 & 287.9653035 & 92.91859759 & 35711.24277 \\
+190 & 128.6132542 & 231.2442113 & 286.1105706 & 120.1345056 & 38450.89726 \\
+195 & 154.8285817 & 216.0344089 & 275.6153487 & 106.7492536 & 36979.35247 \\
+\hline
+\end{tabular}
+\caption{NGLDM results on CIFAR-10}
+\label{table:your_label}
+\end{table}
+\twocolumn
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{normal_ngldm_sample194.png}
+  \caption{Gaussian samples for epoch 194 (top 8) and ground truth (bottom 8)}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{gaussian_samples_199.png}
+  \caption{96 Gaussian samples for epoch 199}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{laplace_ngldm_sample195.png}
+  \caption{Laplace samples for epoch 195 (top 8) and ground truth (bottom 8)}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{laplace_samples_199.png}
+  \caption{96 Laplace samples for epoch 199}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{exponential_ngldm_sample6.png}
+  \caption{Exponential samples for epoch 6 (top 8) and ground truth (bottom 8)}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{exponential_samples_199.png}
+  \caption{96 Exponential samples for epoch 199}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{uniform_ngldm_sample199.png}
+  \caption{Uniform samples for epoch 199 (top 8) and ground truth (bottom 8)}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{uniform_samples_199.png}
+  \caption{96 Uniform samples for epoch 199}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{gumbel_ngldm_sample181.png}
+  \caption{Gumbel samples for epoch 181 (top 8) and ground truth (bottom 8)}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.8\linewidth]{gumbel_samples_199.png}
+  \caption{96 Gumbel samples for epoch 199}
+  \hfill
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.9\linewidth]{full_progress.png}
+  \caption{Generative samples for each distribution during training}
+  \hfill
+\end{figure*}
+
+\end{document}
