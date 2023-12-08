@@ -1,5 +1,4 @@
-# 311-project
-CSC311 Diffusion Project
+# Non-Gaussian Latent Diffusion Models
 
 ## Mini Diffusion
 
